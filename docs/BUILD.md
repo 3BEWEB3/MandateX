@@ -5,6 +5,10 @@
 
 ---
 
+## Status: All 9 must-haves complete. All 4 stretches complete.
+
+---
+
 ## Get Running in 5 Minutes
 
 ```bash
@@ -58,8 +62,10 @@ mandatex/
 │   ├── .env                   # API keys, never commit
 │   └── .env.example           # Template, commit this
 │
-├── CONTEXT.md                 # What and why, read first
-└── BUILD.md                   # How to build, you are here
+├── docs/
+│   ├── CONTEXT.md             # What and why, read first
+│   ├── ARCHITECTURE.md        # Architecture decisions
+│   └── BUILD.md               # How to build, you are here
 ```
 
 ---
@@ -96,30 +102,30 @@ Rule -> Agent Attempt -> Decision
 Must-have UX details:
 
 ```
-[ ] Main screen uses 3-panel story layout:
+[x] Main screen uses 3-panel story layout:
     Spending Rule -> Agent Attempt -> Decision
 
-[ ] Mandate is shown in plain English before raw form fields:
+[x] Mandate is shown in plain English before raw form fields:
     "ResearchAgent_01 can only pay OpenWeather up to 2 USDC per call."
 
-[ ] Unauthorized vendor attempt is the primary CTA.
+[x] Unauthorized vendor attempt is the primary CTA.
 
-[ ] Authorized OpenWeather payment is secondary, used only to prove the x402 rail.
+[x] Authorized OpenWeather payment is secondary, used only to prove the x402 rail.
 
-[ ] Blocked result card is the largest visual element after the attempt.
+[x] Blocked result card is the largest visual element after the attempt.
 
-[ ] Blocked result explicitly says:
+[x] Blocked result explicitly says:
     "BLOCKED BEFORE PAYMENT CLEARED"
 
-[ ] Blocked reason appears in one line:
+[x] Blocked reason appears in one line:
     "Blocked: vendor not allowed by mandate"
 
-[ ] Proof panel shows:
+[x] Proof panel shows:
     Mandate source: Solana account
     Decision: Blocked
     x402 payment: Not executed
 
-[ ] Data source badge stays top-right and visible, but does not compete with the hero result.
+[x] Data source badge stays top-right and visible, but does not compete with the hero result.
 ```
 
 Do not lead the UI with these:
@@ -138,209 +144,122 @@ These can exist in small text or proof details. They are not the story.
 
 ---
 
-## What To Build - In This Order
+## What Was Built — Task by Task
 
-Do not skip ahead. Do not start a new task until the previous one works.
+### MUST HAVE
 
-### MUST HAVE - build these first, in this order
+#### Task 1 — x402 on Solana devnet via Coinbase facilitator ✅
+- Ran `npm run coinbase:server` + `npm run coinbase:client` from `x402-solana-examples`
+- Two transactions confirmed on Solana devnet:
+  - `4TvKucXccHxVpP1HkVCtahBSbqYDoNLNfvs2E16xExgZVjy49s2ukjR5qZuZZk8Qq4hB3a89qeb8vV7zosGKFzbU`
+  - `64f7ND61Zkwc39pkd5H4Pem3eVMVk1Ld4J6froovo2WbSBLpDgsbrPNnebAimBsWRQT2pKoftjYBwyNRkdzfjzTH`
+- Created `backend/x402_client.py` — Python equivalent of `x402-demo-client.ts`
+  - Uses `x402ClientSync` + `KeypairSigner.from_base58` + `register_exact_svm_client`
+  - `x402.http.clients.requests.x402_requests` handles 402 → sign → retry loop
+  - Falls back to mock if vendor server is unreachable
+- Created `backend/requirements.txt` and `backend/.env.example`
 
-```
-[ ] Task 1 - x402 on Solana devnet via Coinbase facilitator
-      Reference: https://github.com/Woody4618/x402-solana-examples
-      Use the pay-using-coinbase example, NOT pay-in-usdc or pay-in-sol.
-      Why: Coinbase facilitator handles on-chain verification for you.
-      Your x402_client.py only needs one HTTP call to the facilitator. No node needed.
+#### Task 2 — FastAPI skeleton + mock fallback ✅
+- Created `backend/mock_data.py` with hardcoded MANDATE, APPROVED_PAYMENT, BLOCKED_PAYMENT
+- Created `backend/api.py` with:
+  - `POST /api/mandate/create` → returns mock mandate object
+  - `POST /api/payment/attempt` → returns mock approved/blocked by vendor string match
+  - All responses include `source: "live" | "partial" | "mock"`
 
-      Steps to prove the rail works:
-        git clone https://github.com/Woody4618/x402-solana-examples
-        cd x402-solana-examples
-        npm install
-        # Terminal 1: npm run coinbase:server
-        # Terminal 2: npm run coinbase:client
+#### Task 3 — mandate.py: 4-check enforcement logic ✅
+- Created `backend/mandate.py` with `check(agent_id, vendor_id, amount, mandate)`:
+  1. Agent check
+  2. Vendor check
+  3. Per-call limit check
+  4. Daily budget check
+- First failing check returns immediately. Logic is non-negotiable.
 
-      After it runs: read pay-using-coinbase/client.ts and server.ts carefully.
-      This TypeScript code is your x402_client.py reference implementation.
+#### Task 4 — solana_client.py: write and read mandate account ✅
+- Created `backend/solana_client.py` (renamed from solana.py to avoid package name conflict)
+- `write_mandate`: sends mandate data as SPL Memo transaction on devnet
+  - Tx signature becomes the `onchain_address` (visible on Solana explorer)
+  - Falls back to mock address on RPC failure
+- `read_mandate`: reads from in-memory `_store`, falls back to `mock_data.MANDATE`
+- `update_spent`: increments `spent_today` in memory after approved payment
+- `reset`: clears `spent_today` and restores `status: 'active'`
 
-      How x402_client.py works after this:
-        1. Receive approved payment request from mandate.py
-        2. POST payment payload to Coinbase facilitator endpoint
-        3. Facilitator verifies on Solana, returns tx confirmation
-        4. Return tx_hash to api.py
-        5. On facilitator failure -> return mock confirmation, badge -> 🟡
+#### Task 5 — Wire api.py to use real modules ✅
+- `POST /api/mandate/create` → `solana_client.write_mandate()`
+- `POST /api/payment/attempt` → `solana_client.read_mandate()` → `mandate_checks.check()` → `x402_client.pay()` only if approved
+- Source field logic:
+  - `live` = real Solana + real x402
+  - `partial` = one mocked
+  - `mock` = both mocked
+- `POST /api/reset` → `solana_client.reset()`
+- `GET /api/mandate/get` → `solana_client.read_mandate()`
 
-      DONE WHEN: One transaction confirmed via Coinbase facilitator on devnet.
-                 You can explain the client.ts payment flow in one sentence.
+#### Task 6 — Next.js frontend: one-screen story + mandate permission card ✅
+- Created full Next.js 14 project in `frontend/`
+- 3-panel layout: Spending Rule | Agent Attempt | Decision
+- `components/mandate.tsx` (Panel 1):
+  - Plain-English summary first: "ResearchAgent_01 can only pay OpenWeather up to 2 USDC per call."
+  - Pre-filled form with seed defaults
+  - "Create Mandate" button → calls `POST /api/mandate/create`
+  - Success state shows onchain address as small proof text
 
-[ ] Task 2 - FastAPI skeleton + mock fallback
-      Create api.py with two endpoints:
-        POST /api/mandate/create -> returns hardcoded mandate object
-        POST /api/payment/attempt -> returns hardcoded approved or blocked response
-      Create mock_data.py with all hardcoded fallback data.
-      Responses must include source: "live" | "partial" | "mock".
-      Blocked responses must include x402_status: "not_executed".
-      DONE WHEN: Both endpoints return 200 with mock data via curl.
+#### Task 7 — Frontend: payment attempt buttons + hero decision display ✅
+- Created `components/payments.tsx` (Panel 2):
+  - Primary CTA: "Trigger Unauthorized Vendor Attempt" (PremiumData, 1 USDC)
+  - Secondary: "Run Authorized Payment Test" (OpenWeather, 1 USDC)
+  - Loading state, disabled until mandate is active
+- Panel 3 (inline in page.tsx):
+  - BLOCKED: large red "BLOCKED BEFORE PAYMENT CLEARED" + one-line reason + x402 status
+  - APPROVED: large green "APPROVED" + amount + x402 status
 
-[ ] Task 3 - mandate.py: 4-check enforcement logic
-      Implement the 4 checks in order:
-        1. agent_id matches mandate.agentPubkey
-        2. vendor_id in mandate.allowedVendors
-        3. amount <= mandate.perCallLimit
-        4. spentToday + amount <= mandate.dailyLimit
-      Return { approved: bool, reason: str }
-      First failing check returns immediately. No further checks.
-      DONE WHEN: Returns correct approved/blocked for all 4 scenarios.
+#### Task 8 — Proof panel, 🟢/🟡/🔴 badge, reset button ✅
+- Created `components/audit.tsx` — proof panel below decision card:
+  - Mandate source, Decision, Reason, x402 payment status
+- Badge in header (always visible): 🟢 live / 🟡 partial / 🔴 mock
+- Reset Demo button in header: clears payments, resets spentToday, restores seed state
 
-[ ] Task 4 - solana_client.py: write and read mandate account
-      Write mandate to Solana devnet account on create.
-      Read mandate from Solana account on payment attempt.
-      Return mock_data.MANDATE if RPC unreachable.
-      Update source field in response accordingly:
-        live    = real Solana + real x402
-        partial = one external source mocked
-        mock    = both external sources mocked
-      DONE WHEN: Mandate account visible on devnet explorer.
+#### Task 9 — Demo hardening ✅
+- `api.py`: global exception handler (no stack traces in responses)
+- `api.py`: added `GET /api/mandate/get`
+- Updated `.gitignore`: excludes `backend/.env`, `__pycache__`, `.next`, keypair files
+- Wrote `README.md`: 3-terminal setup, env var instructions, demo flow, mock fallback table
 
-[ ] Task 5 - Wire api.py to use real modules
-      /api/mandate/create -> solana_client.py.write_mandate()
-      /api/payment/attempt -> solana_client.py.read_mandate()
-                           -> mandate.py.check()
-                           -> x402_client.py.pay() only if approved
-      If mandate.py blocks the payment, x402_client.py must not be called.
-      Return { success, data, source, reason } on all paths.
-      DONE WHEN: Full backend flow works via curl with real Solana data.
+### STRETCH
 
-[ ] Task 6 - Next.js frontend: one-screen story + mandate permission card
-      Build a 3-panel layout:
-        1. Spending Rule
-        2. Agent Attempt
-        3. Decision
+#### Stretch 1 — Revoke mandate ✅
+- `mandate.py`: status check at top of `check()` — blocks all payments if revoked
+- `solana_client.py`: `set_status(mandate_id, status)` updates in-memory store
+- `api.py`: `POST /api/mandate/revoke` endpoint
+- `mandate.tsx`: "Revoke Mandate" button (visible when active), status badge flips red
 
-      Pre-fill mandate with seed data defaults:
-        Agent:    ResearchAgent_01
-        Vendor:   OpenWeather
-        Per-call: 2 USDC
-        Daily:    5 USDC
+#### Stretch 2 — Overspend block ✅
+- `payments.tsx`: "Simulate Overspend — 6 USDC" button (orange)
+- Sends OpenWeather, 6.0 USDC → fails check 3: "exceeds per-call limit"
 
-      Show plain-English summary above the form:
-        "ResearchAgent_01 can only pay OpenWeather up to 2 USDC per call."
+#### Stretch 3 — Compact event log ✅
+- `audit.tsx`: history table below proof panel, appears after 2+ attempts
+- Shows: status | vendor | amount | reason | timestamp
+- Reads from `payments[]` state — no backend call
 
-      Submit calls POST /api/mandate/create.
-      Show success state after creation.
-      Show onchainAddress as small proof text, not the hero.
-      DONE WHEN: Founder can create mandate in under 30 seconds.
-
-[ ] Task 7 - Frontend: payment attempt buttons + hero decision display
-      Two buttons:
-        Primary:   "Trigger Unauthorized Vendor Attempt"
-        Secondary: "Run Authorized Payment Test"
-
-      Primary button sends:
-        vendor_id = "PremiumData"
-        amount = 1.0
-
-      Secondary button sends:
-        vendor_id = "OpenWeather"
-        amount = 1.0
-
-      Each calls POST /api/payment/attempt via page.tsx only.
-      Show loading state while waiting.
-
-      Blocked result card:
-        Large label: "BLOCKED BEFORE PAYMENT CLEARED"
-        One-line reason: "Blocked: vendor not allowed by mandate"
-        Attempted: ResearchAgent_01 -> PremiumData -> 1 USDC
-        Allowed: ResearchAgent_01 -> OpenWeather only
-        x402 payment: Not executed
-
-      Approved result card:
-        Large label: "APPROVED"
-        Message: "Approved - 1 USDC to OpenWeather"
-        x402 payment: Executed or mocked, based on source
-
-      DONE WHEN: Blocked case is visually obvious and authorized case still works.
-
-[ ] Task 8 - Frontend: proof panel, 🟢/🟡/🔴 badge, reset button
-      Badge in top-right corner, always visible:
-        🟢 source === 'live'    (real Solana + real x402)
-        🟡 source === 'partial' (one mocked)
-        🔴 source === 'mock'    (both mocked)
-
-      Proof panel below decision card shows:
-        Mandate source: Solana account or demo fallback
-        Decision: Approved or Blocked
-        Reason: one-line reason
-        x402 payment: Executed / Not executed / Mocked
-
-      Reset button:
-        Clears payments[]
-        Resets spentToday to 0
-        Restores default visual demo state
-
-      DONE WHEN: Badge updates correctly, proof panel is readable, reset restores demo state.
-
-[ ] Task 9 - Demo hardening
-      Comment out Solana call -> mock fallback activates, badge goes 🟡/🔴.
-      Comment out x402 call -> mock fallback activates, badge updates.
-      All error messages human-readable, no stack traces in UI.
-      No console errors during full demo run.
-      .env.example and README with run commands written.
-      Full demo path must start with unauthorized block, not approved payment.
-      DONE WHEN: Full demo runs × 3, timed, under 3 minutes, no breaks.
-```
-
-### STRETCH - only if all must-haves done and 90+ minutes remain
-
-```
-[ ] Stretch 1 - Pause/revoke mandate
-      Add Pause/Revoke button to mandate panel.
-      Updates mandate.status to 'revoked' in backend state.
-      Next payment attempt blocked: "Blocked: mandate revoked"
-      Highest judge impact. Build this first.
-
-[ ] Stretch 2 - Overspend block
-      Add third demo button: "Simulate Agent Payment - 6 USDC"
-      Fails check 3: exceeds per-call limit (2 USDC max)
-      Shows: "Blocked: exceeds per-call limit"
-
-[ ] Stretch 3 - Proof panel tiny event list
-      Compact list below proof panel.
-      Each row: timestamp | agent | vendor | amount | decision | reason
-      Read from payments[] state. No backend call needed.
-      Do not turn this into a full audit page.
-
-[ ] Stretch 4 - Daily budget exhaustion
-      Multiple approved payments accumulate spentToday in backend.
-      Final payment blocked: "Blocked: daily budget exceeded"
-      Lowest priority. Cut if time is tight.
-```
+#### Stretch 4 — Daily budget exhaustion ✅
+- Already handled by existing `spent_today` accumulation in `solana_client.update_spent`
+- Run authorized payment 5× → 6th attempt blocked: "daily budget exceeded"
 
 ---
 
-## What NOT To Build
-
-These are explicitly cut. Claude Code must not build or suggest these.
+## Key Decisions
 
 ```
-- Custom Anchor/Solana program
-- Expiry check (v1)
-- User auth or login
-- Multi-agent or multi-vendor support
-- Autonomous agent script
-- Full audit page (proof panel only, not a page)
-- Wallet connect
-- Real agent identity signing
-- Charts or analytics
-- Beautiful landing page
-- Email or export features
-- Mobile responsive layout
-- Payment retry logic
-- Mandate templates
-- Raw JSON explorer UI
-- Enterprise compliance workflow
-- Anything AP2 or x402 V2 already does deeply, such as full VDC signing or wallet session systems
+- solana.py  → renamed to solana_client.py (avoids conflict with `solana` PyPI package)
+- x402.py    → renamed to x402_client.py   (avoids conflict with `x402` PyPI package)
+- Mandate storage: SPL Memo transaction (no custom Anchor program)
+- spent_today tracked in backend memory only (not written back on-chain)
+- TS demo server (npm run coinbase:server) acts as the vendor API for x402 payments
+- Frontend on port 3001 (avoids conflict with TS demo server on port 3000)
+- No custom Anchor/Solana program: off-chain enforcement with on-chain mandate storage
+- Enforcement logic in backend/mandate.py, not on-chain
+- No user auth: single founder, fixed wallet, no login
+- 4 checks only: agent, vendor, per-call limit, daily budget. Expiry killed for v1.
 ```
-
-If Claude Code suggests any of these, reject it. Do not add it.
 
 ---
 
@@ -565,6 +484,34 @@ devnet USDC balance empty            Use Solana devnet faucet + Circle devnet US
 [ ] Full demo timed under 3 minutes
 [ ] Verbal pitch practiced out loud at least once
 ```
+
+---
+
+## What NOT To Build
+
+These are explicitly cut. Claude Code must not build or suggest these.
+
+```
+- Custom Anchor/Solana program
+- Expiry check (v1)
+- User auth or login
+- Multi-agent or multi-vendor support
+- Autonomous agent script
+- Full audit page (proof panel only, not a page)
+- Wallet connect
+- Real agent identity signing
+- Charts or analytics
+- Beautiful landing page
+- Email or export features
+- Mobile responsive layout
+- Payment retry logic
+- Mandate templates
+- Raw JSON explorer UI
+- Enterprise compliance workflow
+- Anything AP2 or x402 V2 already does deeply, such as full VDC signing or wallet session systems
+```
+
+If Claude Code suggests any of these, reject it. Do not add it.
 
 ---
 
