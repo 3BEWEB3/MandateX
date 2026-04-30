@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+function getSupabase() {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+}
 
-const TOKEN = process.env.MCP_BEARER_TOKEN!
+function getToken() { return process.env.MCP_BEARER_TOKEN! }
 
 async function sha256b64url(plain: string): Promise<string> {
   const encoder = new TextEncoder()
@@ -60,10 +59,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 400 })
   }
 
-  await supabase.from('auth_codes').delete().eq('code', code)
+  await getSupabase().from('auth_codes').delete().eq('code', code)
 
   return NextResponse.json({
-    access_token: TOKEN,
+    access_token: getToken(),
     token_type: 'Bearer',
     expires_in: 3600,
   })

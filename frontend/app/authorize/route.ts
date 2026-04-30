@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+function getSupabase() {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+}
 
 const CLIENT_ID = 'mandatex-docs'
-const TOKEN = process.env.MCP_BEARER_TOKEN!
+function getToken() { return process.env.MCP_BEARER_TOKEN! }
 
 function randomCode(): string {
   const arr = new Uint8Array(32)
@@ -71,12 +70,12 @@ export async function POST(req: NextRequest) {
   const state = formData.get('state') as string
   const codeChallenge = formData.get('code_challenge') as string
 
-  if (token !== TOKEN) {
+  if (token !== getToken()) {
     return new NextResponse('Invalid token', { status: 401 })
   }
 
   const code = randomCode()
-  const { error } = await supabase.from('auth_codes').insert({
+  const { error } = await getSupabase().from('auth_codes').insert({
     code,
     code_challenge: codeChallenge,
     redirect_uri: redirectUri,

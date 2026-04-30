@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+function getSupabase() {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+}
 
-const TOKEN = process.env.MCP_BEARER_TOKEN!
+function getToken() { return process.env.MCP_BEARER_getToken()! }
 
 function authError() {
   return NextResponse.json(
@@ -139,7 +138,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     if (existing) {
       const newVersion = existing.version + 1
 
-      await supabase.from('project_docs_versions').insert({
+      await getSupabase().from('project_docs_versions').insert({
         doc_id: existing.id,
         content,
         version: newVersion,
@@ -162,7 +161,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
         .single()
       if (error) throw new Error(error.message)
 
-      await supabase.from('project_docs_versions').insert({
+      await getSupabase().from('project_docs_versions').insert({
         doc_id: inserted.id,
         content,
         version: 1,
@@ -209,7 +208,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     const newVersion = doc.version + 1
     const editedBy = (args.edited_by as string) || 'claude'
 
-    await supabase.from('project_docs_versions').insert({
+    await getSupabase().from('project_docs_versions').insert({
       doc_id: doc.id,
       content: snap.content,
       version: newVersion,
@@ -242,7 +241,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get('authorization') || ''
-  if (auth !== `Bearer ${TOKEN}`) return authError()
+  if (auth !== `Bearer ${getToken()}`) return authError()
 
   let body: { jsonrpc: string; method: string; params?: unknown; id?: unknown }
   try {
