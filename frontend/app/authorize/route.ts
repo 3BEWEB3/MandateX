@@ -89,5 +89,5 @@ export async function POST(req: NextRequest) {
   dest.searchParams.set('code', code)
   if (state) dest.searchParams.set('state', state)
 
-  return NextResponse.redirect(dest.toString())
+  return NextResponse.redirect(dest.toString(), 302)
 }
