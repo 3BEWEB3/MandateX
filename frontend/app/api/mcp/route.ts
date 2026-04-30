@@ -96,8 +96,10 @@ const TOOLS = [
 ]
 
 async function handleTool(name: string, args: Record<string, unknown>) {
+  const db = getSupabase()
+
   if (name === 'list_docs') {
-    let q = supabase
+    let q = db
       .from('project_docs')
       .select('id, name, category, version, updated_at')
       .eq('deleted', false)
@@ -113,7 +115,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
   }
 
   if (name === 'get_doc') {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('project_docs')
       .select('*')
       .eq('name', args.name as string)
@@ -129,7 +131,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     const category = (args.category as string) || 'general'
     const editedBy = (args.edited_by as string) || 'claude'
 
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('project_docs')
       .select('id, version')
       .eq('name', docName)
@@ -138,14 +140,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     if (existing) {
       const newVersion = existing.version + 1
 
-      await getSupabase().from('project_docs_versions').insert({
+      await db.from('project_docs_versions').insert({
         doc_id: existing.id,
         content,
         version: newVersion,
         edited_by: editedBy,
       })
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('project_docs')
         .update({ content, category, version: newVersion, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
@@ -154,14 +156,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
       if (error) throw new Error(error.message)
       return data
     } else {
-      const { data: inserted, error } = await supabase
+      const { data: inserted, error } = await db
         .from('project_docs')
         .insert({ name: docName, content, category, version: 1 })
         .select()
         .single()
       if (error) throw new Error(error.message)
 
-      await getSupabase().from('project_docs_versions').insert({
+      await db.from('project_docs_versions').insert({
         doc_id: inserted.id,
         content,
         version: 1,
@@ -173,14 +175,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
   }
 
   if (name === 'get_history') {
-    const { data: doc, error: docErr } = await supabase
+    const { data: doc, error: docErr } = await db
       .from('project_docs')
       .select('id')
       .eq('name', args.name as string)
       .single()
     if (docErr) throw new Error(docErr.message)
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('project_docs_versions')
       .select('version, edited_by, created_at')
       .eq('doc_id', doc.id)
@@ -190,14 +192,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
   }
 
   if (name === 'restore_version') {
-    const { data: doc, error: docErr } = await supabase
+    const { data: doc, error: docErr } = await db
       .from('project_docs')
       .select('id, version')
       .eq('name', args.name as string)
       .single()
     if (docErr) throw new Error(docErr.message)
 
-    const { data: snap, error: snapErr } = await supabase
+    const { data: snap, error: snapErr } = await db
       .from('project_docs_versions')
       .select('content')
       .eq('doc_id', doc.id)
@@ -208,14 +210,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     const newVersion = doc.version + 1
     const editedBy = (args.edited_by as string) || 'claude'
 
-    await getSupabase().from('project_docs_versions').insert({
+    await db.from('project_docs_versions').insert({
       doc_id: doc.id,
       content: snap.content,
       version: newVersion,
       edited_by: editedBy,
     })
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('project_docs')
       .update({ content: snap.content, version: newVersion, updated_at: new Date().toISOString() })
       .eq('id', doc.id)
@@ -226,7 +228,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
   }
 
   if (name === 'delete_doc') {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('project_docs')
       .update({ deleted: true })
       .eq('name', args.name as string)
