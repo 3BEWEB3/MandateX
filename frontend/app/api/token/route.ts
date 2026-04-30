@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
 
-  const { data: row, error } = await supabase
+  const db = getSupabase()
+
+  const { data: row, error } = await db
     .from('auth_codes')
     .select('*')
     .eq('code', code)
@@ -49,7 +51,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Clean up stale codes (older than 10 minutes)
-  await supabase
+  await db
     .from('auth_codes')
     .delete()
     .lt('created_at', new Date(Date.now() - 10 * 60 * 1000).toISOString())
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 400 })
   }
 
-  await getSupabase().from('auth_codes').delete().eq('code', code)
+  await db.from('auth_codes').delete().eq('code', code)
 
   return NextResponse.json({
     access_token: getToken(),
