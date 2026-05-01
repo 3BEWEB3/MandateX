@@ -17,6 +17,17 @@ import x402_client
 
 app = FastAPI()
 INNGEST_ENABLED = bool(os.getenv("INNGEST_DEV") or os.getenv("INNGEST_SIGNING_KEY"))
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://xmandatex.vercel.app",
+    "https://mandatex-desmond-chyes-projects.vercel.app",
+]
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", ",".join(DEFAULT_ALLOWED_ORIGINS)).split(",")
+    if origin.strip()
+]
 inngest_client = inngest.Inngest(
     app_id="mandatex-backend",
     logger=logging.getLogger("uvicorn"),
@@ -38,11 +49,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://mandatex-desmond-chyes-projects.vercel.app",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

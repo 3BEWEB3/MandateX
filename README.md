@@ -86,11 +86,13 @@ SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_PRIVATE_KEY=
 X402_VENDOR_URL=http://localhost:3000
 X402_FACILITATOR_URL=https://www.x402.org/facilitator
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,https://xmandatex.vercel.app
 INNGEST_EVENT_KEY=
 INNGEST_SIGNING_KEY=
 ```
 
 `SOLANA_PRIVATE_KEY` should be a base58-encoded devnet private key. Leave it blank to run in mock mode.
+`CORS_ALLOWED_ORIGINS` is a comma-separated allowlist for browser origins that can call the backend.
 
 ### Frontend: `frontend/.env.local`
 
