@@ -22,31 +22,55 @@ function rpcError(id: unknown, code: number, message: string) {
   return NextResponse.json({ jsonrpc: '2.0', id, error: { code, message } })
 }
 
+function resolveTables(table: unknown): { docs: string; versions: string } {
+  if (table === undefined || table === 'project') {
+    return { docs: 'project_docs', versions: 'project_docs_versions' }
+  }
+  if (table === 'research') {
+    return { docs: 'research_docs', versions: 'research_docs_versions' }
+  }
+  throw new Error(`Invalid table "${table}". Must be "project" or "research".`)
+}
+
+const TABLE_PARAM = {
+  table: {
+    type: 'string',
+    enum: ['project', 'research'],
+    description:
+      "Which doc store to target. Use 'project' (default) for internal project docs: CONTEXT, ARCHITECTURE, BUILD, hypothesis docs, retros, _INDEX, _SCHEMA, INSIGHTS. Use 'research' for whitepaper/spec/blog/external source summaries.",
+  },
+}
+
 const TOOLS = [
   {
     name: 'list_docs',
-    description: 'List all project documentation files. Returns id, name, category, version, updated_at.',
+    description:
+      "List all docs in a table. Returns id, name, category, version, updated_at. Use table='project' (default) for internal project docs; table='research' for external research/whitepaper summaries. Filter by category (optional).",
     inputSchema: {
       type: 'object',
       properties: {
         category: { type: 'string', description: 'Filter by category (optional)' },
+        ...TABLE_PARAM,
       },
     },
   },
   {
     name: 'get_doc',
-    description: 'Get the full content of a document by name.',
+    description:
+      "Get the full content of a document by name. Specify table='research' for research docs; defaults to project docs.",
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Document name (e.g. "BUILD.md")' },
+        ...TABLE_PARAM,
       },
       required: ['name'],
     },
   },
   {
     name: 'upsert_doc',
-    description: 'Create or update a document. Saves a version snapshot automatically.',
+    description:
+      "Create or update a document. Saves a version snapshot automatically. Specify table='research' to write to the research table; defaults to project docs.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -54,41 +78,48 @@ const TOOLS = [
         content: { type: 'string' },
         category: { type: 'string', description: 'Category tag (default: general)' },
         edited_by: { type: 'string', description: 'Who is making the edit' },
+        ...TABLE_PARAM,
       },
       required: ['name', 'content'],
     },
   },
   {
     name: 'get_history',
-    description: 'Get version history for a document.',
+    description:
+      "Get version history for a document. Specify table='research' for research docs; defaults to project docs.",
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Document name' },
+        ...TABLE_PARAM,
       },
       required: ['name'],
     },
   },
   {
     name: 'restore_version',
-    description: 'Restore a document to a specific historical version.',
+    description:
+      "Restore a document to a specific historical version. Specify table='research' for research docs; defaults to project docs.",
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
         version: { type: 'number', description: 'Version number to restore to' },
         edited_by: { type: 'string' },
+        ...TABLE_PARAM,
       },
       required: ['name', 'version'],
     },
   },
   {
     name: 'delete_doc',
-    description: 'Soft-delete a document (marks deleted=true, content preserved in history).',
+    description:
+      "Soft-delete a document (marks deleted=true, content preserved in history). Specify table='research' for research docs; defaults to project docs.",
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
+        ...TABLE_PARAM,
       },
       required: ['name'],
     },
@@ -97,10 +128,11 @@ const TOOLS = [
 
 async function handleTool(name: string, args: Record<string, unknown>) {
   const db = getSupabase()
+  const { docs, versions } = resolveTables(args.table)
 
   if (name === 'list_docs') {
     let q = db
-      .from('project_docs')
+      .from(docs)
       .select('id, name, category, version, updated_at')
       .eq('deleted', false)
       .order('updated_at', { ascending: false })
@@ -116,7 +148,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
 
   if (name === 'get_doc') {
     const { data, error } = await db
-      .from('project_docs')
+      .from(docs)
       .select('*')
       .eq('name', args.name as string)
       .eq('deleted', false)
@@ -132,7 +164,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     const editedBy = (args.edited_by as string) || 'claude'
 
     const { data: existing } = await db
-      .from('project_docs')
+      .from(docs)
       .select('id, version')
       .eq('name', docName)
       .single()
@@ -140,7 +172,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     if (existing) {
       const newVersion = existing.version + 1
 
-      await db.from('project_docs_versions').insert({
+      await db.from(versions).insert({
         doc_id: existing.id,
         content,
         version: newVersion,
@@ -148,7 +180,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
       })
 
       const { data, error } = await db
-        .from('project_docs')
+        .from(docs)
         .update({ content, category, version: newVersion, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
         .select()
@@ -157,13 +189,13 @@ async function handleTool(name: string, args: Record<string, unknown>) {
       return data
     } else {
       const { data: inserted, error } = await db
-        .from('project_docs')
+        .from(docs)
         .insert({ name: docName, content, category, version: 1 })
         .select()
         .single()
       if (error) throw new Error(error.message)
 
-      await db.from('project_docs_versions').insert({
+      await db.from(versions).insert({
         doc_id: inserted.id,
         content,
         version: 1,
@@ -176,14 +208,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
 
   if (name === 'get_history') {
     const { data: doc, error: docErr } = await db
-      .from('project_docs')
+      .from(docs)
       .select('id')
       .eq('name', args.name as string)
       .single()
     if (docErr) throw new Error(docErr.message)
 
     const { data, error } = await db
-      .from('project_docs_versions')
+      .from(versions)
       .select('version, edited_by, created_at')
       .eq('doc_id', doc.id)
       .order('version', { ascending: false })
@@ -193,14 +225,14 @@ async function handleTool(name: string, args: Record<string, unknown>) {
 
   if (name === 'restore_version') {
     const { data: doc, error: docErr } = await db
-      .from('project_docs')
+      .from(docs)
       .select('id, version')
       .eq('name', args.name as string)
       .single()
     if (docErr) throw new Error(docErr.message)
 
     const { data: snap, error: snapErr } = await db
-      .from('project_docs_versions')
+      .from(versions)
       .select('content')
       .eq('doc_id', doc.id)
       .eq('version', args.version as number)
@@ -210,7 +242,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     const newVersion = doc.version + 1
     const editedBy = (args.edited_by as string) || 'claude'
 
-    await db.from('project_docs_versions').insert({
+    await db.from(versions).insert({
       doc_id: doc.id,
       content: snap.content,
       version: newVersion,
@@ -218,7 +250,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
     })
 
     const { data, error } = await db
-      .from('project_docs')
+      .from(docs)
       .update({ content: snap.content, version: newVersion, updated_at: new Date().toISOString() })
       .eq('id', doc.id)
       .select()
@@ -229,7 +261,7 @@ async function handleTool(name: string, args: Record<string, unknown>) {
 
   if (name === 'delete_doc') {
     const { data, error } = await db
-      .from('project_docs')
+      .from(docs)
       .update({ deleted: true })
       .eq('name', args.name as string)
       .select()
